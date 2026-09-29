@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FAYAM CV MAKER</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font:15px system-ui,sans-serif;background:#eef1f5;color:#111}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 20px;background:#0f3d3e;color:#fff}
+header b{font-size:20px;letter-spacing:1px}
+button{cursor:pointer;border:0;border-radius:6px;padding:8px 14px;background:#e8a317;font-weight:600;font-size:14px}
+button.g{background:#ffffff26;color:#fff}
+main{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:20px;padding:20px}
+#editor{background:#fff;border-radius:10px;padding:16px;max-height:calc(100vh - 100px);overflow:auto}
+.tabs{display:flex;gap:8px;margin-bottom:8px}
+.tabs button{flex:1;background:#e5e7eb}
+.tabs .on{background:#0f3d3e;color:#fff}
+label{display:block;font-weight:600;font-size:13px;margin:10px 0}
+input,textarea{width:100%;margin-top:4px;padding:8px;border:1px solid #cbd5e1;border-radius:6px;font:inherit}
+fieldset{border:1px solid #cbd5e1;border-radius:8px;margin:10px 0}
+h3{margin:18px 0 0}
+.del{background:#fee2e2;margin-top:6px}
+.ai{background:#d5efe9;margin-top:6px;font-size:13px}
+.tools{display:flex;gap:8px;margin-bottom:8px}.tools button{flex:1;background:#e5e7eb}
+dialog{border:0;border-radius:10px;padding:20px;width:min(380px,92vw)}
+dialog button{margin:6px 6px 0 0}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 16px;border-radius:8px;display:none}
+#page{background:#fff;width:210mm;min-height:297mm;padding:18mm;margin:auto;box-shadow:0 2px 12px #0003;font:11pt/1.4 "Times New Roman",serif}
+#page h1{font-size:20pt;margin:0}
+#page h2{font-size:12pt;text-transform:uppercase;border-bottom:1px solid #000;margin:14px 0 6px}
+#page p{margin:0 0 10px}
+#page ul,#page ol{margin:4px 0 8px;padding-left:20px}
+.c{text-align:center;margin-bottom:8px}
+.r{display:flex;justify-content:space-between;gap:10px}
+@media(max-width:900px){main{grid-template-columns:1fr}#page{width:100%;min-height:0;padding:8mm}#editor{max-height:none}}
+@media print{header,#editor,#toast{display:none}body{background:#fff}main{display:block;padding:0}#page{box-shadow:none;width:auto;min-height:0;padding:0}@page{size:A4;margin:15mm}}
+</style>
+</head>
+<body>
+<header>
+  <b>FAYAM CV MAKER</b>
+  <div>
+    <button class="g" id="mine">My documents</button>
+    <button class="g" id="acct">Sign in</button>
+    <button id="save">Save</button>
+    <button id="print">Download PDF</button>
+  </div>
+</header>
+<main>
+  <section id="editor">
+    <div class="tools"><button id="samp">Load sample</button><button id="clr">Clear all</button></div>
+    <div class="tabs"><button data-tab="cv">CV</button><button data-tab="cl">Cover letter</button></div>
+    <div id="form"></div>
+  </section>
+  <section><div id="page"></div></section>
+</main>
+
+<dialog id="auth">
+  <h3 style="margin-top:0">Sign in to save your documents</h3>
+  <label>Email<input id="em" type="email"></label>
+  <label>Password<input id="pw" type="password"></label>
+  <button id="in">Sign in</button><button id="up">Create account</button><button id="out" class="g" style="color:#111;background:#e5e7eb">Sign out</button>
+  <button onclick="this.closest('dialog').close()" style="background:#e5e7eb">Close</button>
+</dialog>
+<dialog id="docs"><h3 style="margin-top:0">My documents</h3><div id="list"></div><button onclick="this.closest('dialog').close()" style="background:#e5e7eb">Close</button></dialog>
+<div id="toast"></div>
+
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+// 1) Paste your Supabase project values here (the anon key is safe to expose; RLS protects data).
+const SUPABASE_URL = 'https://wfbkamfrurtchmzsuvot.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_H3B6_88ddh6BmqIwhCnauQ_YwnQg1vK';
+const sb = SUPABASE_URL.includes('YOUR-') ? null : createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = s => document.querySelector(s);
+const esc = s => (s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const lines = s => (s || '').split('\n').map(x => x.trim()).filter(Boolean);
+const toast = m => { const t = $('#toast'); t.textContent = m; t.style.display = 'block'; setTimeout(() => t.style.display = 'none', 2800); };
+
+const newExp = () => ({ company: '', location: '', title: '', date: '', bullets: '' });
+const newEdu = () => ({ degree: '', field: '', school: '' });
+const blank = () => ({
+  job: '',
+  cv: { name: '', title: '', contact: '', summary: '', tech: '', soft: '', certs: '', exp: [newExp()], edu: [newEdu()] },
+  cl: { name: '', title: '', tagline: '', contact: '', greeting: 'Dear Hiring Manager,', p1: '', p2: '', p3: '', bring: '', closing: '', signoff: '' }
+});
+
+const B = 'Lead end-to-end product operations and Agile delivery for FinTech platforms, coordinating engineers, product owners, and business stakeholders.\nManage sprint planning, daily stand-ups, retrospectives, and backlog prioritization using Jira to ensure on-time, high-quality delivery.\nUtilize Postman and Swagger to support API validation, issue investigation, and technical documentation.\nConduct root cause analysis (RCA) on service disruptions, reducing repeat incidents and improving platform stability.\nDevelop and maintain process documentation, onboarding guides, KPIs, and operational reports to drive efficiency and visibility.';
+const sample = () => ({
+  job: '',
+  cv: {
+    name: 'John Smith', title: 'Product Operations Manager', contact: 'johnsmith@email.com | +234 800 000 0000 | Lagos, Nigeria | LinkedIn Profile',
+    summary: 'Product operations professional with experience leading Agile delivery for FinTech platforms. Skilled at coordinating engineers, product owners and business stakeholders to ship reliable products on time, and at turning operational data into clear improvements.',
+    tech: 'Jira, Postman, Swagger, SQL, Confluence, Agile/Scrum', soft: 'Leadership, stakeholder management, problem solving, communication',
+    certs: 'Certified Scrum Master (CSM)\nAgile Project Management Certificate',
+    exp: [
+      { company: 'COMPANY NAME', location: 'Lagos, Nigeria', title: 'Product Operations Manager', date: 'Jan 2022 – Present', bullets: B },
+      { company: 'COMPANY NAME', location: 'Abuja, Nigeria', title: 'Business Analyst', date: 'Jun 2019 – Dec 2021', bullets: B }
+    ],
+    edu: [{ degree: 'Bachelor of Science (B.Sc.)', field: 'Accounting', school: 'Kogi State University, Anyigba, Nigeria' }]
+  },
+  cl: {
+    name: 'John Smith', title: 'Clinical Research Expert', tagline: 'Research Design & Methodology | Forensic Science | Scientific & Medical Writing',
+    contact: 'johnsmith@email.com | +234 916 514 6757 | LinkedIn Profile | USA', greeting: 'Dear Hiring Manager,',
+    p1: 'From the moment I stepped into a forensic research lab, I was captivated by the power of science to uncover hidden truths. The process of analyzing a sample and revealing a story that could change everything inspired me to dedicate myself to this field. Every detail, no matter how small, fuels my drive to turn data into discoveries that have a tangible impact.',
+    p2: 'In my journey as a clinical and forensic researcher, I have sharpened my expertise in histopathology, forensic analysis, and data interpretation. I have published over 23 peer-reviewed articles, showcasing my ability to connect complex scientific concepts to real-world applications. At Bowen University, I led morgue operations and forensic research projects, pushing the boundaries of forensic methodologies and making meaningful contributions to high-profile medico-legal cases.',
+    p3: 'I thrive in environments that encourage innovation and value excellence, and this role aligns perfectly with my passion for transforming scientific research into actionable insights. The opportunity to contribute to impactful clinical research that directly influences public health and forensic science excites me. The role offers the perfect platform to apply my expertise in research methodology, data analysis, and scientific writing while expanding my knowledge and making a tangible impact on real-world issues.',
+    bring: 'Expertise in forensic analysis, tissue processing, and clinical research methodologies.\nA strong track record of publishing influential research and advancing scientific knowledge.\nProven leadership in managing lab operations and optimizing workflows for greater efficiency.\nExceptional communication and writing skills, demonstrated by numerous peer-reviewed publications.',
+    closing: 'I look forward to discussing how my skills and experience can contribute to your team’s success. Thank you for considering my application. I am excited about the opportunity to collaborate and make a meaningful impact together.',
+    signoff: 'John Smith'
+  }
+});
+
+const AIHINT = {
+  summary: 'a professional summary of 3-4 sentences', tech: 'a comma-separated list of relevant technical skills', soft: 'a comma-separated list of relevant soft skills',
+  certs: 'relevant professional development and certifications, one per line', bullets: '4-5 achievement-focused bullet points for this job, one per line, each starting with a strong action verb',
+  p1: 'an engaging opening paragraph of a cover letter (3-4 sentences) showing motivation for the field and role', p2: 'a cover letter paragraph (4-5 sentences) summarizing relevant experience and achievements',
+  p3: 'a cover letter paragraph (3-4 sentences) explaining why this role and organization are a strong fit', bring: '4 one-line points on what the candidate brings to the role, one per line',
+  closing: 'a short closing paragraph for a cover letter (2-3 sentences)'
+};
+const aib = (k, x = '') => AIHINT[k] ? `<button type="button" class="ai" data-ai="${k}" ${x}>✨ Write with AI</button>` : '';
+
+const CVF = [['name', 'Full name'], ['title', 'Professional title'], ['contact', 'Contact info (email | phone | location | LinkedIn)'],
+  ['summary', 'Professional summary', 1], ['tech', 'Technical skills (comma separated)'], ['soft', 'Soft skills (comma separated)'],
+  ['certs', 'Professional development & certifications (one per line)', 1]];
+const CLF = [['name', 'Full name'], ['title', 'Professional title'], ['tagline', 'Specialties (A | B | C)'], ['contact', 'Contact info'],
+  ['greeting', 'Greeting'], ['p1', 'Opening paragraph', 1], ['p2', 'Experience paragraph', 1], ['p3', 'Why this role paragraph', 1],
+  ['bring', 'What you can bring to the role (one per line)', 1], ['closing', 'Closing paragraph', 1], ['signoff', 'Sign-off name']];
+
+let tab = 'cv';
+let data = JSON.parse(localStorage.getItem('fayam2') || 'null') || sample();
+const ids = {};
+
+const cvHTML = d => `
+<div class="c"><h1>${esc(d.name) || 'FULL NAME'}</h1><div>${esc(d.title) || 'PROFESSIONAL TITLE'}</div><div>${esc(d.contact) || 'CONTACT INFO'}</div></div>
+<h2>Professional Summary</h2><p>${esc(d.summary)}</p>
+<h2>Skills</h2><ul><li><b>Technical skills:</b> ${esc(d.tech)}</li><li><b>Soft skills:</b> ${esc(d.soft)}</li></ul>
+<h2>Professional Development and Certification</h2><ul>${lines(d.certs).map(x => `<li>${esc(x)}</li>`).join('')}</ul>
+<h2>Professional Work Experience</h2>
+${d.exp.map(e => `<div class="r"><b>${esc(e.company) || 'COMPANY'}</b><i>${esc(e.location)}</i></div><div class="r"><b>${esc(e.title) || 'JOB TITLE'}</b><span>${esc(e.date)}</span></div><ul>${lines(e.bullets).map(x => `<li>${esc(x)}</li>`).join('')}</ul>`).join('')}
+<h2>Education</h2>
+${d.edu.map(e => `<div><b>${esc(e.degree)}${e.field ? ' | ' + esc(e.field) : ''}</b></div><div>${esc(e.school)}</div>`).join('')}`;
+
+const clHTML = d => `
+<div class="c"><h1>${esc(d.name) || 'FULL NAME'}</h1><div><b>${esc(d.title) || 'Professional Title'}</b></div><div>${esc(d.tagline)}</div><div>${esc(d.contact)}</div></div>
+<p>${esc(d.greeting)}</p><p>${esc(d.p1)}</p><p>${esc(d.p2)}</p><p>${esc(d.p3)}</p>
+${lines(d.bring).length ? `<p>Here’s what I can bring to the role:</p><ol>${lines(d.bring).map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : ''}
+<p>${esc(d.closing)}</p><p>Sincerely,<br>${esc(d.signoff || d.name)}</p>`;
+
+function draw() {
+  $('#page').innerHTML = tab === 'cv' ? cvHTML(data.cv) : clHTML(data.cl);
+  localStorage.setItem('fayam2', JSON.stringify(data));
+}
+
+function form() {
+  const F = tab === 'cv' ? CVF : CLF, d = data[tab];
+  let h = `<label>Job you are applying for (paste the job description so AI can tailor the writing)<textarea data-job rows="3">${esc(data.job)}</textarea></label>` + F.map(([k, l, t]) => `<label>${l}${t ? `<textarea data-k="${k}" rows="4">${esc(d[k])}</textarea>` : `<input data-k="${k}" value="${esc(d[k])}">`}${aib(k)}</label>`).join('');
+  if (tab === 'cv') {
+    h += '<h3>Work experience</h3>' + d.exp.map((e, i) => `<fieldset>
+      <label>Company<input data-g="exp" data-i="${i}" data-k="company" value="${esc(e.company)}"></label>
+      <label>Location<input data-g="exp" data-i="${i}" data-k="location" value="${esc(e.location)}"></label>
+      <label>Job title<input data-g="exp" data-i="${i}" data-k="title" value="${esc(e.title)}"></label>
+      <label>Date (e.g. Jan 2022 – Present)<input data-g="exp" data-i="${i}" data-k="date" value="${esc(e.date)}"></label>
+      <label>Achievements (one per line)<textarea rows="5" data-g="exp" data-i="${i}" data-k="bullets">${esc(e.bullets)}</textarea>${aib('bullets', `data-g="exp" data-i="${i}"`)}</label>
+      <button class="del" data-del="exp:${i}">Remove</button></fieldset>`).join('') + '<button data-add="exp">+ Add job</button>';
+    h += '<h3>Education</h3>' + d.edu.map((e, i) => `<fieldset>
+      <label>Degree<input data-g="edu" data-i="${i}" data-k="degree" value="${esc(e.degree)}"></label>
+      <label>Field<input data-g="edu" data-i="${i}" data-k="field" value="${esc(e.field)}"></label>
+      <label>School, location<input data-g="edu" data-i="${i}" data-k="school" value="${esc(e.school)}"></label>
+      <button class="del" data-del="edu:${i}">Remove</button></fieldset>`).join('') + '<button data-add="edu">+ Add education</button>';
+  }
+  $('#form').innerHTML = h;
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
+  draw();
+}
+
+$('#form').oninput = e => {
+  if (e.target.dataset.job !== undefined) { data.job = e.target.value; return draw(); }
+  const { k, g, i } = e.target.dataset;
+  if (!k) return;
+  if (g) data.cv[g][i][k] = e.target.value; else data[tab][k] = e.target.value;
+  draw();
+};
+$('#form').onclick = e => {
+  const { add, del, ai: a, g: ag, i: ai } = e.target.dataset;
+  if (a) return aiWrite(e.target, a, ag, ai);
+  if (add) { data.cv[add].push(add === 'exp' ? newExp() : newEdu()); form(); }
+  if (del) { const [g, i] = del.split(':'); if (data.cv[g].length > 1) data.cv[g].splice(+i, 1); form(); }
+};
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.tab; form(); });
+$('#print').onclick = () => window.print();
+
+// ---- Supabase: auth + saved documents ----
+const needKeys = () => { if (!sb) { toast('Add your Supabase URL and anon key in index.html first.'); return true; } };
+const user = async () => (await sb.auth.getUser()).data.user;
+$('#acct').onclick = () => needKeys() || $('#auth').showModal();
+const cred = () => ({ email: $('#em').value, password: $('#pw').value });
+$('#in').onclick = async () => { const { error } = await sb.auth.signInWithPassword(cred()); error ? toast(error.message) : ($('#auth').close(), toast('Signed in'), $('#acct').textContent = 'Account'); };
+$('#up').onclick = async () => { const { error } = await sb.auth.signUp(cred()); toast(error ? error.message : 'Check your email to confirm your account'); };
+$('#out').onclick = async () => { await sb.auth.signOut(); $('#auth').close(); $('#acct').textContent = 'Sign in'; };
+
+$('#save').onclick = async () => {
+  if (needKeys()) return;
+  const u = await user();
+  if (!u) return $('#auth').showModal();
+  const row = { user_id: u.id, type: tab, title: `${data[tab].name || 'Untitled'} – ${tab === 'cv' ? 'CV' : 'Cover letter'}`, content: data[tab], updated_at: new Date().toISOString() };
+  if (ids[tab]) row.id = ids[tab];
+  const { data: r, error } = await sb.from('documents').upsert(row).select().single();
+  if (error) return toast(error.message);
+  ids[tab] = r.id; toast('Saved');
+};
+$('#mine').onclick = async () => {
+  if (needKeys()) return;
+  if (!(await user())) return $('#auth').showModal();
+  const { data: rows, error } = await sb.from('documents').select('*').order('updated_at', { ascending: false });
+  if (error) return toast(error.message);
+  $('#list').innerHTML = rows.length ? rows.map(r => `<div style="margin:8px 0"><b>${esc(r.title)}</b><br><button data-open="${r.id}">Open</button><button data-rm="${r.id}" class="del">Delete</button></div>`).join('') : '<p>Nothing saved yet.</p>';
+  $('#list').onclick = async e => {
+    const { open, rm } = e.target.dataset;
+    if (open) { const r = rows.find(x => x.id === open); tab = r.type; data[r.type] = r.content; ids[r.type] = r.id; $('#docs').close(); form(); }
+    if (rm) { await sb.from('documents').delete().eq('id', rm); toast('Deleted'); $('#mine').click(); }
+  };
+  $('#docs').showModal();
+};
+
+$('#samp').onclick = () => { if (confirm('Replace what you have typed with the sample?')) { data = sample(); form(); } };
+$('#clr').onclick = () => { if (confirm('Clear everything?')) { data = blank(); form(); } };
+
+async function aiWrite(btn, k, g, i) {
+  if (needKeys()) return;
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { toast('Sign in to use AI writing'); return $('#auth').showModal(); }
+  const d = data[tab], t = g ? d[g][i] : d, old = btn.textContent;
+  btn.textContent = 'Writing…'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token },
+      body: JSON.stringify({ hint: AIHINT[k], current: t[k] || '', job: data.job, context: { cv: data.cv, coverLetter: tab === 'cl' ? data.cl : undefined, thisJob: g ? t : undefined } })
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'AI request failed');
+    t[k] = j.text; form();
+  } catch (e) { toast(e.message); btn.textContent = old; btn.disabled = false; }
+}
+
+form();
+</script>
+</body>
+</html>
